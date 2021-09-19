@@ -1,0 +1,172 @@
+---
+title: "To Generate a **.csv** file from a chess tournament results"
+author: "Nnaemeka Okereafor"
+date: "9/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+ 
+### About the project
+In this project, we're given a text file with chess tournament results where the information has some structure. Our job was to create an R Markdown file that generates a *.CSV* file (that could for example be imported into a SQL database) with the following information for all of the players:
+**Player’s Name**, **Player’s State**, **Total Number of Points**, **Player’s Pre-Rating**, and **Average Pre Chess Rating of Opponents**. Illustration, for the first player, the information would be: Gary Hua, ON, 6.0, 1794, 1605
+
+```{r warning=FALSE, message=FALSE}
+library(readr)
+library(stringr)
+
+df1<-read.table(file="https://raw.githubusercontent.com/nnaemeka-git/global-datasets/main/tournamentinfo.txt",stringsAsFactors = FALSE, sep=",",skip=4)
+```
+
+### To remove **dashes**
+
+```{r}
+df2 <- df1$V1
+df2 <- str_replace_all(df2, pattern = "\\s+", replacement = " " )
+df2 <- str_remove_all(df2, pattern = "-")
+```
+
+
+### Names
+
+To match **Players Names**
+
+```{r  warning=FALSE, message=FALSE}
+names <- unlist(str_match_all(df1, " [A-Za-z]{1,}\\s*[A-Za-z.,-]{1,}\\s*[A-Za-z.,-]{1,}\\s?"))
+names
+
+```
+
+### States
+
+To match the names of the **States**
+
+```{r  warning=FALSE, message=FALSE}
+state <- unlist(str_match_all(df1, " [A-Za-z]{2}\\s\\|"))
+state <-str_remove_all(state,"\\|")
+state
+
+
+```
+
+### Points
+
+To match the **Player Points**
+
+```{r  warning=FALSE, message=FALSE}
+pts <- unlist(str_match_all(df1,"\\|\\d+.."))
+#To remove pipe
+pts <-str_remove_all(pts,"\\|")
+pts
+
+```
+
+
+### Pre Rating
+
+To match the **pre-rating scores**
+
+```{r  warning=FALSE, message=FALSE}
+Pre_rate <-unlist(str_match_all(df1,"R.\\s.\\d+"))
+Pre_rate <-as.numeric(str_remove_all(Pre_rate,'R:'))
+
+# Convert into a dataframe
+Pre_rate<-data.frame(Pre_rate)
+colnames(Pre_rate)<-"rating"
+index<-data.frame(as.numeric(row.names(Pre_rate)))
+colnames(index)<-"Index"
+pre_rate_df <- data.frame(index,Pre_rate)
+
+head(pre_rate_df)
+
+```
+
+### Number of Games Played
+
+To extract the **number of games played and the opponents' numbers**
+
+```{r  warning=FALSE, message=FALSE}
+num_game <- unlist(str_extract_all(df2,"\\|[0-9].*"))
+num_game <- unlist(str_replace_all(num_game, "\\|[BUXH] ", replacement = "\\|R 0"))
+```
+
+```{r}
+#To remove the first part containing the total points
+oppon <- unlist(str_remove_all(num_game, pattern = "\\|\\d\\.\\d\\s"))
+
+#To remove the alphabets and the pipe
+oppone <- unlist(str_remove_all(oppon, pattern = "[:alpha:]\\|"))
+
+oppone <- as.numeric(unlist(str_extract_all(oppone, pattern = "[:digit:]{1,2}")))
+head(oppone)
+```
+
+### To convert vectors into matrix and add columns to the matrix to represent the Opponents in each round of game
+
+```{r}
+col_names=c("O1","O2","O3","O4","O5","O6","O7")
+op_matr <- as.data.frame(matrix(oppone,byrow=TRUE,ncol=7,))
+colnames(op_matr)<-col_names
+op_matr
+
+```
+
+###  To extract the **opponents's pre-rating scores**
+
+```{r}
+#nexted forloop does it better
+
+for (row in 1:nrow(op_matr)){
+  for (col in 1:ncol(op_matr)){
+    if (op_matr[row,col] != 0){
+      op_matr[row,col] = pre_rate_df$rating[op_matr[row,col]]
+    } else {
+       op_matr[row,col] = NA
+     }
+  }
+}
+
+op_matr
+```
+
+### To label **opponents' pre-rating scores** columns, count **Number of Opponents**, sum the **total opponents' pre-rating score** and calculate the **Average opponents' pre-rating score**
+
+```{r}
+matr_names=c("O1 Pre-rating","O2 Pre-rating","O3 Pre-rating","O4 Pre-rating","O5 Pre-rating","O6 Pre-rating","O7 Pre-rating")
+colnames(op_matr)<-matr_names
+op_matr$Num.of.Opponents <- rowSums(!is.na(op_matr))
+op_matr$TotalPreOp_rating <- rowSums(op_matr[,1:7],na.rm=TRUE)
+op_matr$AvgPreOp_rating <- round((op_matr$TotalPreOp_rating/op_matr$Num.of.Opponents),0)
+head(op_matr,n=20)
+```
+
+### Combine dataframes to produce a single table
+
+```{r  warning=FALSE, message=FALSE}
+library(dplyr)
+table <- data.frame("Player Name"=names, state=state, "Number of Points"=pts, pre_rate_df,op_matr)
+head(table,n=15)
+```
+
+### Create a table with the **required columns** from the final table
+
+```{r}
+chess_rating_table <- table%>% select(Player.Name,state,Number.of.Points,rating,AvgPreOp_rating)
+chess_rating_table
+```
+
+### Write the dataframe to a **csv** file
+
+```{r}
+write.csv(chess_rating_table, row.names = FALSE)
+
+```
+
+### Writing **chess_rating_table** into a directory
+
+```{r}
+#write.csv(chess_rating_table, "choice_file_name.csv", row.names = FALSE)
+```
+
